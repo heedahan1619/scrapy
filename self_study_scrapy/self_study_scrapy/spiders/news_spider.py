@@ -103,59 +103,64 @@ class NewsSpider(scrapy.Spider):
         media = str(self.origin_media.split("(")[0])
         # print(f"언론사: {media}")
         
+        # total_category_list = []
+        # media_category_dict = {}
+        # media_category_sub_dict = {}
+        
+        """전체 카테고리 수집"""
+        
         total_category_list = []
+        media_total_category_dict = {}
         media_category_dict = {}
         media_category_sub_dict = {}
         
-        for category_info in (response.xpath("//ul[@class='all clearfix']/li/dl")):
-            # print(f"\n 카테고리 정보: {category_info}")
-            
-            """언론사 카테고리 대분류"""
-            for category in category_info.xpath("dt/a"):
-                # print(f" {media} 카테고리 대분류 요소: {category}")
-                
-                # 대분류 코드
-                
-                split = category.xpath("@href").get().split("/")[3:]
-                # print(f"\n 대분류 코드 split 요소: {split}")
-                # print(f"\n 대분류 코드 split 개수 : {len(split)}")
-                
-                if len(split) > 1:
-                    media_category_code = split[0] + "/" + split[1]
-                else:
-                    media_category_code = split[0]
-                # print(f"\n 카테고리 대분류 코드: {media_category_code}")
-                
-                # # 대분류 이름
-                media_category_name = category.xpath("text()").get()
-                # print(f"\n 카테고리 대분류 name: {media_category_name}")
-                
-                media_category_dict[media_category_code] = media_category_name
-    
-            """언론사 카테고리 소분류"""
-            for category_sub in category_info.xpath("dd/a"):
-                # print(f" {media} 카테고리 소분류 요소: {category_sub}")
+        dl_elements = response.xpath("//ul[@class='all clearfix']//dl")
+        # print(f"\n dl 요소 전체: {dl_elements}")
+        # print(f"\n dl 요소 개수: {len(dl_elements)}")
         
-                # 소분류 코드
-                split = category_sub.xpath("@href").get().split("/")[3:]
-                # print(f"\n 소분류 코드 split 요소: {split}")
-                # print(f"\n 소분류 코드 split 개수 : {len(split)}")
+        for i, dl in enumerate(dl_elements):
+            # print(f"\n dl 인덱스: {i}")
+            # print(f"\n dl 요소: {dl}")
             
-                if len(split) == 3:
-                    media_category_sub_code = split[0] + "/" + split[1] + "/" + split[2]
-                elif len(split) == 2:
-                    media_category_sub_code = split[0] + "/" + split[1]
-                else:
-                    media_category_sub_code = split[0]
-                # print(f"\n 카테고리 소분류 code: {media_category_sub_code}")
-                    
-                media_category_sub_name = category_sub.xpath("text()").get()    
-                # print(f"\n 카테고리 소분류 name: {media_category_sub_name}")
-                
-                media_category_sub_dict[media_category_sub_code] = media_category_sub_name
-                
-        # print(f"\n 카테고리 대분류 dict: {media_category_dict}")
-        # print(f"\n 카테고리 소분류 dict: {media_category_sub_dict}")
+            """언론사 대분류"""
+            # 대분류 카테고리 코드
+            dt_href = dl.xpath("dt/a/@href").get()
+            dt_split = dt_href.split("/")[3:]
+            print(f"\n dt 요소 split: {dt_split}")
+            if len(dt_split) > 2:
+                dt_code = dt_split[0] + "/" + dt_split[1]
+            else:
+                dt_code = dt_split[0]
+            total_category_list.append(dt_code)
+            # print(f"\n dt 코드: {dt_code}")
+            
+            # 대분류 카테고리 이름
+            dt_text = dl.xpath("dt/a/text()").get()
+            # print(f"\n dt 이름: {dt_text}")
+            
+            # 대분류 카테고리 dict
+            media_category_dict[dt_code] = dt_text
+            print(f"\n {media} 대분류 카테고리 dict: {media_category_dict}")
+            
+            """언론사 소분류"""
+            dd_split = dl.xpath("dd/a/@href").get().split("/")[3:]
+            # print(f"\n dd_split: {dd_split}")
+            # print(f"\n dd_split 개수: {len(dd_split)}")
+            
+            if len(dd_split) == 3:
+                dd_code = dd_split[0] + "/" + dd_split[1] + "/" + dd_split[2]
+            elif len(dd_split) == 2:
+                dd_code = dd_split[0] + "/" + dd_split[1]
+            else:
+                dd_code = dd_split[0]
+            total_category_list.append(dd_code)
+            print(f"\n dd 코드: {dd_code}")
+            
+            dd_text = dl.xpath("dd/a/text()").get()
+            print(f"\n dd 이름: {dd_text}")
+            
+            media_category_sub_dict[dd_code] = dd_text
+            print(f"\n {media} 소분류 카테고리 dict: {media_category_sub_dict}")
             
         """언론사 전체 카테고리"""
         # 전체 카테고리 리스트
