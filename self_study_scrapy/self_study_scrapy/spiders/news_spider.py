@@ -52,8 +52,8 @@ class Stella1Spider(scrapy.Spider):
             start_date_input = None,
             end_date_input = None,
             
-            # # 카테고리 입력
-            # user_input_category = None,
+            # 카테고리 입력
+            user_input_category = None,
             
             save_method="json"
         ):
@@ -89,9 +89,9 @@ class Stella1Spider(scrapy.Spider):
         assert self.start_date is not None and self.end_date is not None, "유효하지 않은 날짜 형식이 입력되었습니다."
         assert self.start_date.timestamp() <= self.end_date.timestamp(), "end_date가 start_date보다 앞에 있습니다."
         
-        # # 카테고리 입력
-        # if user_input_category is None:
-        #     user_input_category = input("카테고리를 입력하세요 : ")
+        # 카테고리 입력
+        if user_input_category is None:
+            user_input_category = input("카테고리를 입력하세요 : ")
         
         self.save_method = save_method
         assert self.save_method in ("json"), "선택할 수 있는 save_method가 아닙니다."
