@@ -1,9 +1,11 @@
+"""Google API 사용해서 문서 불러오기"""
 from requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 import pandas as pd
 import io
+import json
 
 # 전체 출력 활성화
 pd.set_option('display.max_rows', None)
@@ -40,7 +42,7 @@ if not creds or not creds.valid:
 drive_service = build("drive", "v3", credentials=creds)
 
 # Google Drive에서 특정 문서의 ID 얻어오기(공유 가능한 링크에서 ID 추출)
-file_id = "Google Drive에서 불러올 문서 ID"
+file_id = "199hLJh2LsAOdgN-Y5pqzAxBYhCZkMJqbMfMjZOHoOX4"
 
 # 파일 다운로드
 request = drive_service.files().export_media(fileId=file_id, mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -51,8 +53,40 @@ done = False
 while done is False:
     _, done = downloader.next_chunk()
 
-# 파일을 바이트 스트림으로 열어서 pandas로 읽어오기
+# 바이트 스트림에서 데이터프레임으로 읽어오기
 df = pd.read_excel(file_stream)
 
-# 데이터프레임 출력
-print(df)
+"""media_list_file 전처리"""
+"""기존 언론사 항목 수정"""
+df = df[:65] # 보류 데이터 제외하고 불러오기
+df.drop([0], axis=0, inplace=True) # 0행 제거
+
+# 카테고리 열 이름 변경
+df.rename(columns={"핀인사이트(=네이버)":"핀인사이트 category", "Unnamed: 1":"핀인사이트 category_sub", "네이트":"네이트 category", "Unnamed: 3":"네이트 category_sub"}, inplace=True)
+
+# 핀인사이트 결측치 채우기
+df["핀인사이트 category"].fillna(method="ffill", inplace=True)
+df["핀인사이트 category_sub"].fillna("", inplace=True)
+
+# 네이트 결측치 채우기
+df["네이트 category"].fillna(method="ffill", inplace=True)
+df["네이트 category_sub"].fillna("", inplace=True)
+df["네이트 category"] = df["네이트 category"].replace("-", "")
+
+"""새로운 언론사 항목 수정"""
+# 새로운 언론사 리스트 생성
+new_media_list = list(df.columns)[4:]
+
+for new_media in new_media_list:
+    df[f"{new_media}"].fillna("", inplace=True) # 새로운 언론사의 결측치를 ""로 변경
+    df[f"{new_media}"] = df[f"{new_media}"].replace(" - ", "- ", regex=True).replace("-", "- ", regex=True) # 새로운 언론사의 입력 형태 통일    
+
+"""문서 파일 추가 작업"""
+# 대괄호 추가: 데이터프레임을 리스트 안에 넣기
+df_list = [df]
+
+# 데이터프레임을 JSON 파일로 저장
+with open("media_list_file.json", "w", encoding="utf-8") as json_file:
+    # 쉼표 추가: lines=True로 설정하여 라인마다 객체를 쉼표로 구분
+    df_list_json = [df.to_dict(orient="records")]
+    json.dump(df_list_json, json_file, indent=2, ensure_ascii=False)
