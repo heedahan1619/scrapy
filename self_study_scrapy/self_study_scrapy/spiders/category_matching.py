@@ -93,4 +93,8 @@ for media_list, categories in media_category_dict.items():
         print(categories["media_category"])
         print(categories["media_category_sub"])
         
-            
+for media_list, categories in media_category_dict.items():
+    if media_list == "핀인사이트_list":
+        print(media_list, len(categories["category"]), len(categories["category_sub"]))
+    else:
+        print(media_list, len(categories["media_category"]), len(categories["media_category_sub"]))
