@@ -1,0 +1,5 @@
+## Ignore File ##
+
+# Google Cloud Platform 관련 파일
+preprocess/client_secret.json
+token.json
