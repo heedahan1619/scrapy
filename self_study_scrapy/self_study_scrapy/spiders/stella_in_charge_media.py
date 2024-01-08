@@ -8,6 +8,7 @@ from scrapy.crawler import CrawlerProcess
 from scrapy.utils.project import get_project_settings
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 from items import CrawlerNewsItem
+from collections import defaultdict
 
 # 정규표현식 불러와서 적용
 import preprocess.constants as cs
@@ -31,7 +32,7 @@ class StartupDailySpider(scrapy.Spider):
     with open("../preprocess/news_category.json", "r", encoding="utf-8") as f:
         category_compatible_dict = json.load(f)
     category_compatible_dict = category_compatible_dict[media_kor_name]
-    print(f"category_compatible_dict : {category_compatible_dict}")
+    # print(f"category_compatible_dict : {category_compatible_dict}")
 
     def __init__(
             self,
@@ -60,13 +61,16 @@ class StartupDailySpider(scrapy.Spider):
         """뉴스 사이트 탭 메뉴를 가져옵니다.
         """
         news_menu_list = response.xpath("//nav[@id='allService']/ul/li/a/text()").getall()[1:]
-        print(f"news_menu_list : {news_menu_list}")
-        news_menu_list
-        # # README.md 파일 내 카테고리 목록에 기입
+        # print(f"news_menu_list : {news_menu_list}")
+        
+        # # README.md 파일 내 카테고리 목록에 기입 후 삭제
         # for news_menu in news_menu_list:
         #     print(news_menu, end=", ")
+        
         news_menu_list_code = response.xpath("//nav[@id='allService']/ul/li/a/@href").getall()[1:]
         news_menu_list_code = [i.split("=")[1].split("&")[0] for i in news_menu_list_code]
+        
+        # 보류 중인 카테고리 삭제
         # # 한 개 지우는 경우
         # del news_menu_list_code[news_menu_list.index('채용 정보')]
         # del news_menu_list[news_menu_list.index('채용 정보')]
@@ -81,6 +85,18 @@ class StartupDailySpider(scrapy.Spider):
         news_menu_dict = dict(zip(news_menu_list, news_menu_list_code))
         news_menu_dict_opp = dict(zip(news_menu_list_code, news_menu_list))
         news_menu_list += ["all"]
+        
+        # sub menu를 dict에 추가
+        global news_menu_list_sub_dict
+        news_menu_list_sub_dict = defaultdict(dict)
+        for i in range(len(response.xpath("//ul[@id='user-menu']/li[@class='secline']"))):
+            news_menu_sub = response.xpath("//ul[@id='user-menu']/li[@class='secline']")[i].xpath("ul/li[@class='sub']/a/text()").getall()
+            news_menu_sub_code = response.xpath("//ul[@id='user-menu']/li[@class='secline']")[i].xpath("ul/li[@class='sub']/a/@href").getall()
+            news_menu_sub_code = [i.split("=")[1].split("&")[0] for i in news_menu_sub_code]
+            
+            news_menu_list_sub_dict.update(dict(zip(news_menu_sub_code, news_menu_sub)))
+
+        
 
         news_menu_select = input(f"{news_menu_list} 중에서 선택(다중 선택 시 (띄어쓰기))로 구분): ").split(" ")
         if news_menu_select==["all"]:
@@ -89,7 +105,6 @@ class StartupDailySpider(scrapy.Spider):
             news_menu_select_code = [news_menu_dict[i] for i in news_menu_select]
         # print(f"news_menu_select : {news_menu_select}")
         # print(f"news_menu_select_code : {news_menu_select_code}")
-        
         
         print(f"Crawling... : {news_menu_select}")
         for i in news_menu_select_code:
@@ -107,23 +122,35 @@ class StartupDailySpider(scrapy.Spider):
     def parse_news_list(self, response):
         """뉴스 목록 페이지를 분석합니다.
         """
-        # print(f"url: {response.url}")
+        
         media_category = response.meta["media_category"]
-        media_category_sub = response.meta["media_category"]
-        print(f"media_category: {media_category}")
-        print(f"media_category_sub: {media_category_sub}")
+        # print(f"media_category: {media_category}")
+
+        # 페이지 처리
         if response.url == f"https://www.startupdaily.kr/news/articleList.html?sc_section_code={news_menu_dict[media_category]}":
             page_num = 1
         else:
             page_num = re.sub(self.news_list_url_total_regex, "", response.url)
             page_num = page_num.split('&')[0]
+            # print(f"page_num: {page_num}")
             
         # 목록 확인
         is_next_news_list = False
         for post_info_date in response.xpath("//section[@id='section-list']/ul/li/div[@class='view-cont']"):
+            
             # 날짜 확인
             date = post_info_date.xpath("span[@class='byline']/em[@class='replace-date']/text()").get()
-            date = datetime.strptime(date, "%Y.%m.%d %H:%M")                           
+            if len(date.split(".")) == 2:
+                date = "2024." + post_info_date.xpath("em[@class='info dated']/text()").get()
+            # print(f"date: {date}")
+            date = datetime.strptime(date, "%Y.%m.%d %H:%M")
+            # print(f"date_time: {date}")
+            
+            # 링크 추출 확인 후 삭제
+            link = post_info_date.xpath("h4[@class='titles']/a/@href").get()
+            link = self.news_url + link
+            # print(f"link: {link}")
+            
             if self.start_date <= date <= self.end_date:
                 is_next_news_list = True
                 link = post_info_date.xpath("h4[@class='titles']/a/@href").get()
@@ -134,12 +161,12 @@ class StartupDailySpider(scrapy.Spider):
                     callback=self.parse_news_page,
                     meta={
                         "date": date,
-                        "media_category": media_category,
-                        "media_category_sub": media_category_sub
+                        "media_category": media_category
                     }
                 )
             elif self.end_date < date:
                 is_next_news_list = True
+                
         # 다른 뉴스 목록을 더 살펴보아야 하는 경우
         if is_next_news_list:
             next_page_num = int(page_num)+self.page_request_range
@@ -148,31 +175,33 @@ class StartupDailySpider(scrapy.Spider):
                 headers=self.headers,
                 callback=self.parse_news_list,
                 meta={
-                    "media_category": media_category,
-                    "media_category_sub": media_category_sub
+                    "media_category": media_category
                 } 
             )
 
     def parse_news_page(self, response):
-
+        """기사 항목 추출 함수"""
+        
         item = CrawlerNewsItem()
         
         item["save_method"] = self.save_method
         item["inp_date"] = response.meta["date"]
         
-        # 핀인사이트 카테고리 대분류, 소분류 출력
+        # 핀인사이트 카테고리 대분류, 소분류 추출
         change_category = self.category_compatible_dict[response.meta["media_category"]]
         if list(change_category.keys())[0]=="all":
             item["category"] = change_category["all"][0]
             item["category_sub"] = change_category["all"][1]
         else:
-            change_category = change_category[response.meta["media_category_sub"]]
+            change_category = change_category[response.meta["media_category"]]
             item["category"] = change_category[0]
             item["category_sub"] = change_category[1]
 
-        # 언론사 카테고리 대분류, 소분류 출력
+        # 언론사 카테고리 대분류, 소분류 추출
         item["media_category"] = response.meta["media_category"]
-        item["media_category_sub"] = response.meta["media_category_sub"]
+        item["media_category_sub"] = response.xpath("")
+        if not item["media_category_sub"]:
+            item["media_category_sub"] = item["media_category"]
 
         item["origin_nm"] = self.origin_media
         item["origin_url"] = response.url
@@ -181,6 +210,8 @@ class StartupDailySpider(scrapy.Spider):
         # 뉴스 제목 추출
         item["title"] = response.xpath("//h3[@class='heading']/text()").get().strip()
         item["title"] = item["title"].translate(str.maketrans("‘’“”∼–×․", "''\"\"~-x.", "\r\n\xa0\t"))
+        pattern = re.compile("|".join(cs.PARENTHESIS))
+        item["title"] = re.sub(pattern, "", item["title"])
 
         # 뉴스 본문 추출
         item["content"] = " ".join(response.xpath("//div[@class='article-body']/article/p/text()"
@@ -190,8 +221,9 @@ class StartupDailySpider(scrapy.Spider):
         item["content"] = re.sub(pattern, " ", item["content"])
         pattern = re.compile("|".join(nr.REGEX_PATTERN[self.name] + nr.REGEX_PATTERN["COMMON"]))
         item["content"] = re.sub(pattern, "", item["content"]).strip()
+        item["content"] = re.sub(r"\s+", " ",  item["content"])
 
-        # 항목 출력
+        # 추출한 뉴스 항목 출력
         print(f"\nurl: {item['origin_url']}")
         print(f"inp_date: {item['inp_date']}")        
         print(f"category: {item['category']}")
