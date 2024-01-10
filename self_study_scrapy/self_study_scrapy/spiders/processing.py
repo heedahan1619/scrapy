@@ -62,18 +62,33 @@ class IssueEnBizSpider(scrapy.Spider):
     def parse_menu_list(self, response):
         """뉴스 사이트 탭 메뉴를 가져옵니다.
         """
-        news_menu_list = response.xpath("//ul[@id='user-menu']/li[@class='secline']/a/text()").getall()[1:]
-        news_menu_list_code = [i.split("&")[0] for i in response.xpath("//ul[@id='user-menu']/li[@class='secline']/a/@href").getall()[1:]]
+        news_menu_list = response.xpath("//ul[@id='user-menu']/li[@class='secline']/a/text()").getall()
+        news_menu_list_code = [i.split("&")[0] for i in response.xpath("//ul[@id='user-menu']/li[@class='secline']/a/@href").getall()]
         
+        # 카테고리 탭에 없는 대분류 추가
+        news_menu_list.append("연예·스포츠")
+        news_menu_list_code.append("/news/articleList.html?sc_section_code=S1N51")
+        news_menu_list.append("포토·VOD")
+        news_menu_list_code.append("/news/articleList.html?sc_section_code=S1N52")
+        news_menu_list.append("인사")
+        news_menu_list_code.append("/news/articleList.html?sc_section_code=S1N57")
+        news_menu_list.append("부고")
+        news_menu_list_code.append("/news/articleList.html?sc_section_code=S1N58")
+
+        # 카테고리 전처리
+        del news_menu_list_code[news_menu_list.index("인사·부고")]
+        del news_menu_list[news_menu_list.index("인사·부고")]
+            
         # 보류 중인 카테고리 삭제
-        del news_menu_list_code[news_menu_list.index('보도자료')]
-        del news_menu_list[news_menu_list.index('보도자료')]
-        
+        for i in ["종합", "보도자료", "포토·VOD"]:
+            del news_menu_list_code[news_menu_list.index(i)]
+            del news_menu_list[news_menu_list.index(i)]   
+            
         global news_menu_dict
         news_menu_dict = dict(zip(news_menu_list, news_menu_list_code))
         news_menu_dict_opp = dict(zip(news_menu_list_code, news_menu_list))
         news_menu_list += ['all']
-        
+
         # 언론사 카테고리 딕셔너리 생성
         global media_dict
         media_dict = defaultdict(dict)
@@ -86,13 +101,17 @@ class IssueEnBizSpider(scrapy.Spider):
             media_category_sub_dict = {}
             for media_category_sub_elements in response.xpath("//ul[@id='user-menu']/li[@class='secline']")[i].xpath("ul/li[@class='sub']"):
                 media_category_sub = media_category_sub_elements.xpath("a/text()").get()
-                media_category_sub_code = media_category_sub_elements.xpath("a/@href").get().split("&")[0]
+                media_category_sub_code = media_category_sub_elements.xpath("a/@href").get().split("&")[0] 
 
                 media_category_sub_dict[media_category_sub_code if media_category_sub_code else ""] = media_category_sub if media_category_sub else ""
                 
                 media_dict[media_category_code] = media_category_sub_dict
                 
-        news_menu_select = input(f'select the category {news_menu_list}: ').split()
+                # 카테고리 탭에 없는 소분류 추가
+                media_dict["/news/articleList.html?sc_section_code=S1N51"] = {"/news/articleList.html?sc_sub_section_code=S2N57" : "라이징스타", "/news/articleList.html?sc_sub_section_code=S2N58" : "야구·축구", "/news/articleList.html?sc_sub_section_code=S2N59" : "해외스포츠"}
+                media_dict["/news/articleList.html?sc_section_code=S1N52"] = {"/news/articleList.html?sc_sub_section_code=S2N60" : "포토", "/news/articleList.html?sc_sub_section_code=S2N61" : "영상"}
+
+        news_menu_select = input(f"{news_menu_list} 중에서 선택(다중 선택 시 (띄어쓰기))로 구분): ").split(" ")
         if news_menu_select==["all"]:
             news_menu_select_code = list(news_menu_dict_opp.keys())
         else:
@@ -111,8 +130,8 @@ class IssueEnBizSpider(scrapy.Spider):
                         meta={
                             "media_category": news_menu_dict_opp[i],
                             "media_category_code": i,
-                            "media_category_sub": media_dict[i][j],
-                            "media_category_sub_code": j
+                            "media_category_sub": None,
+                            "media_category_sub_code": None
                             }
                     )
                     # 소분류 기사
@@ -184,18 +203,19 @@ class IssueEnBizSpider(scrapy.Spider):
                     "media_category_sub_code": media_category_sub_code
                     }
             )
-            # 소분류 기사
-            yield scrapy.Request(
-                url = self.news_list_url.format(media_category_sub_code, str(next_page_num)),
-                headers=self.headers,
-                callback=self.parse_news_list,
-                meta={
-                    "media_category": media_category,
-                    "media_category_code": media_category_code,
-                    "media_category_sub": media_category_sub,
-                    "media_category_sub_code": media_category_sub_code
-                    }
-            )
+            if media_category_sub_code:
+                # 소분류 기사
+                yield scrapy.Request(
+                    url = self.news_list_url.format(media_category_sub_code, str(next_page_num)),
+                    headers=self.headers,
+                    callback=self.parse_news_list,
+                    meta={
+                        "media_category": media_category,
+                        "media_category_code": media_category_code,
+                        "media_category_sub": media_category_sub,
+                        "media_category_sub_code": media_category_sub_code
+                        }
+                )
 
 
     def parse_news_page(self, response):
@@ -204,21 +224,27 @@ class IssueEnBizSpider(scrapy.Spider):
         item["save_method"] = self.save_method
         item["inp_date"] = response.meta["date"]
 
-        # 핀인 사이트에 맞춰 변경
+        # 핀인 사이트 카테고리
         change_category = self.category_compatible_dict[response.meta["media_category"]]
-        if list(change_category.keys())[0]=="all":
-            item["category"] = change_category["all"][0]
-            item["category_sub"] = change_category["all"][1]
+        if response.meta["media_category_sub"] != None:
+            if list(change_category.keys())[0]=="all":
+                item["category"] = change_category["all"][0]
+                item["category_sub"] = change_category["all"][1]
+            else:
+                change_category = change_category[response.meta["media_category_sub"]]
+                item["category"] = change_category[0]
+                item["category_sub"] = change_category[1]
         else:
-            change_category = change_category[response.meta["media_category_sub"]]
+            change_category = change_category[response.meta["media_category"]]
             item["category"] = change_category[0]
             item["category_sub"] = change_category[1]
 
-        # 기존 카테고리-서브카테고리
+        # 언론사 카테고리
         item["media_category"] = response.meta["media_category"]
-        item["media_category_sub"] = response.meta["media_category_sub"]
+        item["media_category_sub"] = response.xpath("//ul[@class='breadcrumbs']/li[3]/a/text()").get()
         if not item["media_category_sub"]:
             item["media_category_sub"] = response.meta["media_category"]
+        print()
 
         item["origin_nm"] = self.origin_media
         item["origin_url"] = response.url
@@ -229,7 +255,7 @@ class IssueEnBizSpider(scrapy.Spider):
         pattern = re.compile("|".join(cs.PARENTHESIS))
         item["title"] = re.sub(pattern, "", item["title"])
 
-        item["content"] = " ".join(response.xpath("//h4[@class='subheading']/text() | //div[@class='article-body']/article/p/text()"
+        item["content"] = " ".join(response.xpath("//h4[@class='subheading']/text() | //div[@class='article-body']/article/p/text() | //article[@id='article-view-content-div']/h3/span/text()"
         ).getall()).replace("\n", "").strip()
         item["content"] = item["content"].translate(str.maketrans("‘’“”∼–×․\xa0", "''\"\"~-x. ", "\r\n\t"))
         pattern = re.compile("|".join(cs.WHITESPACE + cs.PARENTHESIS + cs.SPECIAL_CHAR))
