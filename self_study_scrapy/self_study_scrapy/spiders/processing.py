@@ -27,7 +27,6 @@ class AjuNewsSpider(scrapy.Spider):
     }
     news_url = "https://www.ajunews.com"
     news_list_url = "https:{}?page={}"
-    news_list_url_total_regex = re.compile(r"https://www.ajunews.com/{}\?page=")
     page_request_range = 10
 
     # 카테고리 호환작업에 쓸 json 파일 불러오기
@@ -39,8 +38,8 @@ class AjuNewsSpider(scrapy.Spider):
 
     def __init__(
             self,
-            start_date="2023-11-01", # 2022-01-01, 2023-11-01
-            end_date="2024-01-05", # 2022-02-28, 2024-01-05
+            start_date="2022-01-01", # 2022-01-01, 2023-11-01
+            end_date="2022-02-28", # 2022-02-28, 2024-01-05
             save_method="json"
         ):
         self.start_date = datetime.strptime(start_date, "%Y-%m-%d")
@@ -69,7 +68,7 @@ class AjuNewsSpider(scrapy.Spider):
         # 보류 중인 카테고리 삭제
         del news_menu_list_code[news_menu_list.index('포토')]
         del news_menu_list[news_menu_list.index('포토')]
-        
+
         global news_menu_dict, news_menu_dict_opp
         news_menu_dict = dict(zip(news_menu_list, news_menu_list_code))
         news_menu_dict_opp = dict(zip(news_menu_list_code, news_menu_list))
@@ -80,7 +79,7 @@ class AjuNewsSpider(scrapy.Spider):
         media_dict = defaultdict(dict)
         for i in range(len(response.xpath("//ul[@class='lnb_list']/li[@class='lnb_item']"))):
             media_category = response.xpath("//ul[@class='lnb_list']/li[@class='lnb_item']")[i].xpath("em[@class='lnb_title']/a/text()").get()
-            media_category_code = media_category = response.xpath("//ul[@class='lnb_list']/li[@class='lnb_item']")[i].xpath("em[@class='lnb_title']/a/@href").get()
+            media_category_code = response.xpath("//ul[@class='lnb_list']/li[@class='lnb_item']")[i].xpath("em[@class='lnb_title']/a/@href").get()
         
             media_dict[media_category_code] = {}
         
@@ -104,65 +103,54 @@ class AjuNewsSpider(scrapy.Spider):
             news_menu_select_code = list(news_menu_dict_opp.keys())
         else:
             news_menu_select_code = [news_menu_dict[i] for i in news_menu_select]
-            
-        ## 선택한 카테고리의 대분류, 소분류 코드를 저장하는 리스트
-        # global selected_total_code
-        # selected_total_code = []    
-        
+
         print(f'Crawling... : {news_menu_select}')
-        for i in news_menu_select_code:
-            print(news_menu_dict_opp[i])
-            # selected_total_code.append(i)
-            for j in media_dict[i].keys():
-                # selected_total_code.append(j)
-            # for code in selected_total_code:
-                for k in range(1, self.page_request_range+1):
-                    
-                    # 대분류 기사
-                    yield scrapy.Request(
-                        url = self.news_list_url.format(i, str(k)),
-                        headers=self.headers,
-                        callback=self.parse_news_list,
-                        meta={
-                            "media_category": news_menu_dict_opp[i],
-                            "media_category_code": i,
-                            "media_category_sub": None,
-                            "media_category_sub_code": None
-                            }
-                        )
-                    
-                    # 소분류 기사
-                    yield scrapy.Request(
-                        url = self.news_list_url.format(j, str(k)),
-                        headers=self.headers,
-                        callback=self.parse_news_list,
-                        meta={
-                            "media_category": news_menu_dict_opp[i],
-                            "media_category_code": i,
-                            "media_category_sub": media_dict[i][j],
-                            "media_category_sub_code": j
-                            }
+        for media_category_code, media_category in news_menu_dict_opp.items():   
+            print(media_category) 
+            for page in range(1, self.page_request_range+1):
+                # 대분류 기사   
+                yield scrapy.Request(
+                    url = self.news_list_url.format(media_category_code, str(page)),
+                    headers=self.headers,
+                    callback=self.parse_news_list,
+                    meta={
+                        "media_category": media_category,
+                        "media_category_code": media_category_code,
+                        "media_category_sub": media_category,
+                        "media_category_sub_code": media_category_code
+                        }
                     )
+                # 소분류 기사
+                for media_category_sub_code, media_category_sub in media_dict[media_category_code].items():
+                    yield scrapy.Request(
+                    url = self.news_list_url.format(media_category_sub_code, str(page)),
+                    headers=self.headers,
+                    callback=self.parse_news_list,
+                    meta={
+                        "media_category": media_category,
+                        "media_category_code": media_category_code,
+                        "media_category_sub": media_category_sub,
+                        "media_category_sub_code": media_category_sub_code
+                        }
+                )
 
     def parse_news_list(self, response):
         """뉴스 탭 메뉴별 목록 페이지를 분석합니다.
         """
         
-        # print(f"\nurl: {response.url}")
+        # print(f"url: {response.url}")
         
         media_category = response.meta["media_category"]
         media_category_code = response.meta["media_category_code"]
         media_category_sub = response.meta["media_category_sub"]
         media_category_sub_code = response.meta["media_category_sub_code"]
-        # for media_category_sub in media_dict[media_category_code].keys():
-        #     media_category_sub_code = media_category_sub
-        
-        if media_category_sub_code:
-            if (response.url == f"https://www.ajunews.com{media_category_code}") or (response.url == f"https:{media_category_sub_code}"):
-                page_num = 1
-            else:
-                page_num = (response.url).split("?")[1].split("=")[1]
-            
+
+        # 페이지 처리
+        if response.url == f"https:{media_category_sub_code}":
+            page_num = 1
+        else:
+            page_num = (response.url).split("?")[1].split("=")[1]
+
         # 목록 확인
         is_next_news_list = False
         for post_info_date in response.xpath("//ul[@class='news_list']/li/div[@class='text_area']"):
@@ -192,40 +180,38 @@ class AjuNewsSpider(scrapy.Spider):
         # 다른 뉴스 목록을 더 살펴보아야 하는 경우
         if is_next_news_list:
             next_page_num = int(page_num)+self.page_request_range
-            for i in news_menu_select_code:
-                for j in media_dict[i].keys():
-                    for k in range(1, self.page_request_range+1):
-                            
-                        # 대분류 기사
-                        yield scrapy.Request(
-                            url = self.news_list_url.format(i, str(next_page_num)),
-                            headers=self.headers,
-                            callback=self.parse_news_list,
-                            meta={
-                                "media_category": media_category,
-                                "media_category_code": media_category_code,
-                                "media_category_sub": media_category_sub,
-                                "media_category_sub_code": media_category_sub_code
-                                }
-                            )
-                        
-                        # 소분류 기사
-                        yield scrapy.Request(
-                            url = self.news_list_url.format(j, str(next_page_num)),
-                            headers=self.headers,
-                            callback=self.parse_news_list,
-                            meta={
-                                "media_category": media_category,
-                                "media_category_code": media_category_code,
-                                "media_category_sub": media_category_sub,
-                                "media_category_sub_code": media_category_sub_code
-                                }
-                        )
+            # 대분류 기사
+            for media_category_code, media_category in news_menu_dict_opp.items():
+                yield scrapy.Request(
+                    url = self.news_list_url.format(media_category_code, str(next_page_num)),
+                    headers=self.headers,
+                    callback=self.parse_news_list,
+                    meta={
+                        "media_category": media_category,
+                        "media_category_code": media_category_code,
+                        "media_category_sub": media_category_sub,
+                        "media_category_sub_code": media_category_sub_code
+                        }
+                    )    
+                # 소분류 기사
+                for media_category_sub_code, media_category_sub in media_dict[media_category_code]:
+                    yield scrapy.Request(
+                        url = self.news_list_url.format(media_category_sub_code, str(next_page_num)),
+                        headers=self.headers,
+                        callback=self.parse_news_list,
+                        meta={
+                            "media_category": media_category,
+                            "media_category_code": media_category_code,
+                            "media_category_sub": media_category_sub,
+                            "media_category_sub_code": media_category_sub_code
+                            }
+                    )
 
 
     def parse_news_page(self, response):
+        """기사 항목 추출 함수"""
         
-        print(f"news: {response.url}")
+        # print(f"news: {response.url}")
         
         item = CrawlerNewsItem()
         item["save_method"] = self.save_method
@@ -240,25 +226,28 @@ class AjuNewsSpider(scrapy.Spider):
             change_category = change_category[response.meta["media_category_sub"]]
             item["category"] = change_category[0]
             item["category_sub"] = change_category[1]
+        # print(item["category"], item["category_sub"])
 
         # 기존 카테고리-서브카테고리
         item["media_category"] = response.meta["media_category"]
         item["media_category_sub"] = response.meta["media_category_sub"]
         if not item["media_category_sub"]:
             item["media_category_sub"] = response.meta["media_category"]
+        # print(item["media_category"], item["media_category_sub"])
 
         item["origin_nm"] = self.origin_media
         item["origin_url"] = response.url
         item["language"] = self.language
 
         item["title"] = response.xpath("//div[@class='inner']/h1/text()").get().strip()
-        print(f"title: {item["title"]}")
         item["title"] = item["title"].translate(str.maketrans("‘’“”∼–×․", "''\"\"~-x.", "\r\n\xa0\t"))
         pattern = re.compile("|".join(cs.PARENTHESIS))
         item["title"] = re.sub(pattern, "", item["title"])
 
-        item["content"] = " ".join(response.xpath("//div[@id='articleBody']/div/text()").getall()).replace("\n", "").strip()
-        print(f"content: {item["content"]}")
+
+        content = " ".join(response.xpath("//ul[@class='sub_title']/li/h2/text() | //div[@id='articleBody']/text() | //div[@id='articleBody']/div/text() | //div[@id='articleBody']/div/div[2]/div/text() | //div[@id='articleBody']/div/strong/text() | //div[@id='articleBody']/p/text()").getall()).replace("\n", "").strip()
+        keyword = " ".join(response.xpath("//ul[@class='keyword_box']/li/a/text()").getall())
+        item["content"] = content + keyword
         item["content"] = item["content"].translate(str.maketrans("‘’“”∼–×․\xa0", "''\"\"~-x. ", "\r\n\t"))
         pattern = re.compile("|".join(cs.WHITESPACE + cs.PARENTHESIS + cs.SPECIAL_CHAR))
         item["content"] = re.sub(pattern, " ", item["content"])
